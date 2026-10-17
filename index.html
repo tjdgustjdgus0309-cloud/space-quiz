@@ -134,6 +134,19 @@
     .result-dot { width: 25px; height: 25px; display: grid; place-items: center; background: var(--green-bg); color: var(--green); border-radius: 7px; font-size: 12px; }
     .result-dot.missed { background: var(--red-bg); color: var(--red); }
     .result-summary { border-top: 1px solid var(--line); padding-top: 17px; font-size: 13px; color: var(--muted); }
+    .review { margin-top: 22px; text-align: left; }
+    .review-toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 13px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--soft); color: var(--text); font-size: 13px; font-weight: 750; text-align: left; }
+    .review-toggle:hover { border-color: var(--green); }
+    .review-toggle[aria-expanded="true"] .review-indicator { transform: rotate(180deg); }
+    .review-list { display: grid; gap: 14px; list-style: none; padding: 0; margin: 14px 0 0; }
+    .review-item { padding: 16px; border: 1px solid var(--line); border-radius: 11px; overflow-wrap: anywhere; }
+    .review-item h3 { margin: 0 0 12px; font-size: 15px; line-height: 1.6; }
+    .review-item p { margin: 8px 0 0; font-size: 13px; }
+    .review-item strong { display: block; }
+    .review-selected { color: var(--red); }
+    .review-correct { color: var(--green); }
+    .review-explanation { border-top: 1px solid var(--line); padding-top: 12px; }
+    .review-empty { margin: 22px 0 0; color: var(--green); font-size: 13px; }
     @keyframes float { 0%, 100% { transform: translateY(0) rotate(-3deg); } 50% { transform: translateY(-7px) rotate(3deg); } }
     @keyframes shake { 0%, 100% { transform: translateX(0); } 20%, 60% { transform: translateX(-5px); } 40%, 80% { transform: translateX(5px); } }
     @keyframes pop { 0%, 100% { transform: scale(1); } 45% { transform: scale(1.13); } }
@@ -252,6 +265,16 @@
           <p class="result-label">이번 탐험에서 얻은 점수</p>
           <div class="result-dots" id="result-dots" aria-label="문항별 결과"></div>
           <p class="result-summary" id="result-summary"></p>
+          <div class="review" id="review" hidden>
+            <button type="button" class="review-toggle" id="review-toggle" aria-expanded="false" aria-controls="review-panel">
+              <span id="review-label">틀린 문제 복습</span>
+              <span class="review-indicator" aria-hidden="true">⌄</span>
+            </button>
+            <div id="review-panel" role="region" aria-labelledby="review-label" hidden>
+              <ol class="review-list" id="review-list" role="list"></ol>
+            </div>
+          </div>
+          <p class="review-empty" id="review-empty" hidden>틀린 문제가 없어요. 모든 문항을 맞혔어요!</p>
           <button class="next" id="restart">다시 탐험하기 <span aria-hidden="true">↗</span></button>
         </div>
       </section>
@@ -279,6 +302,7 @@
     let answered = false;
     let finished = false;
     let outcomes = [];
+    let selections = [];
 
     function updateProgress(completed) {
       $("progress-fill").style.width = `${completed / questions.length * 100}%`;
@@ -326,6 +350,7 @@
       const item = questions[current];
       const correct = index === item.correct;
       outcomes.push(correct);
+      selections.push(index);
       if (correct) {
         score += 10;
         $("score").textContent = score;
@@ -371,6 +396,42 @@
       }
     }
 
+    function renderReview() {
+      $("review-list").replaceChildren();
+      $("review-toggle").setAttribute("aria-expanded", "false");
+      $("review-panel").hidden = true;
+      outcomes.forEach((correct, index) => {
+        if (correct) return;
+        const item = questions[index];
+        const entry = document.createElement("li");
+        entry.className = "review-item";
+        entry.value = index + 1;
+        const heading = document.createElement("h3");
+        heading.textContent = `${index + 1}번. ${item.question}`;
+        entry.append(heading);
+        const fields = [
+          ["review-selected", "내가 선택한 답 (오답)", item.answers[selections[index]]],
+          ["review-correct", "정답", item.answers[item.correct]],
+          ["review-explanation", "해설", item.explanation]
+        ];
+        fields.forEach(([className, label, text]) => {
+          const paragraph = document.createElement("p");
+          paragraph.className = className;
+          const caption = document.createElement("strong");
+          caption.textContent = label;
+          const content = document.createElement("span");
+          content.textContent = text;
+          paragraph.append(caption, content);
+          entry.append(paragraph);
+        });
+        $("review-list").append(entry);
+      });
+      const missed = $("review-list").children.length;
+      $("review-label").textContent = `틀린 문제 복습 · 오답 ${missed}개`;
+      $("review").hidden = missed === 0;
+      $("review-empty").hidden = missed !== 0;
+    }
+
     function showResults() {
       finished = true;
       $("quiz").hidden = true;
@@ -395,19 +456,31 @@
         dot.title = `${index + 1}번: ${correct ? "정답" : "오답"}`;
         $("result-dots").append(dot);
       });
+      renderReview();
       $("result-title").focus({ preventScroll: true });
     }
 
+    $("review-toggle").addEventListener("click", () => {
+      const expanded = $("review-toggle").getAttribute("aria-expanded") === "true";
+      $("review-toggle").setAttribute("aria-expanded", String(!expanded));
+      $("review-panel").hidden = expanded;
+    });
     $("next").addEventListener("click", advance);
     $("restart").addEventListener("click", () => {
       current = 0;
       score = 0;
       outcomes = [];
+      selections = [];
       finished = false;
       $("score").textContent = "0";
       $("score-badge").setAttribute("aria-label", "현재 점수 0점");
       $("score-badge").classList.remove("bump");
       $("results").hidden = true;
+      $("review").hidden = true;
+      $("review-toggle").setAttribute("aria-expanded", "false");
+      $("review-panel").hidden = true;
+      $("review-list").replaceChildren();
+      $("review-empty").hidden = true;
       $("quiz").hidden = false;
       updateProgress(0);
       renderQuestion(true);
